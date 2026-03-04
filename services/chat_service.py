@@ -9,36 +9,41 @@ groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
 async def generate_answer(customer_id: str, user_question: str, history: list):
     
-    # --- 1. THE REFORMULATOR (Solving the context logic) ---
+    # --- 1. THE BULLETPROOF REFORMULATOR ---
     search_query = user_question
     
-    # Only reformulate if there is an actual conversation history to look back on
     if len(history) > 0:
-        reformulate_prompt = (
-            "You are an AI query extractor. Your ONLY job is to rewrite the user's latest question "
-            "into a standalone search query using the conversation history. "
-            "If the question contains pronouns (he, she, it) or refers to past context, replace them with the actual names. "
-            "If the question is small talk (e.g., 'hello', 'my day is good'), output exactly: SKIP_SEARCH. "
-            "Do NOT answer the question. ONLY output the rewritten query."
-        )
-        
-        # We only need the last ~4 messages to figure out pronouns
-        reformulate_msgs = [{"role": "system", "content": reformulate_prompt}]
+        # Flatten the history into a script to prevent the AI from "replying" during extraction
+        history_script = ""
         for msg in history[-4:]:
-            reformulate_msgs.append(msg)
-        reformulate_msgs.append({"role": "user", "content": user_question})
-        
+            role = "User" if msg.get("role") == "user" else "Consultant"
+            history_script += f"{role}: {msg.get('content')}\n"
+            
+        reformulate_prompt = f"""You are a strict database query extractor. Do NOT act as a conversational AI. Do NOT answer the question.
+
+            Recent Conversation History:
+            {history_script}
+
+            New User Input: "{user_question}"
+
+            Task: Rewrite the New User Input into a standalone search query. 
+            - Replace pronouns (he, she, his, them, it) with the specific subjects from the history.
+            - If the input is just small talk or a greeting (e.g., "hello", "im good"), output EXACTLY: SKIP_SEARCH
+            - Output ONLY the standalone rewritten question. Nothing else. Do NOT answer it."""
+
         try:
             rewrite_completion = await groq_client.chat.completions.create(
-                messages=reformulate_msgs,
+                messages=[{"role": "user", "content": reformulate_prompt}],
                 model="llama-3.1-8b-instant",
-                temperature=0.0, # 0.0 means zero creativity, just literal extraction
+                temperature=0.0, # Zero creativity, strict extraction
                 max_tokens=40
             )
-            rewritten_text = rewrite_completion.choices[0].message.content.strip()
             
-            # If it's small talk, we won't waste time searching the DB
-            if rewritten_text != "SKIP_SEARCH":
+            rewritten_text = rewrite_completion.choices[0].message.content.strip().replace('"', '')
+            
+            if "SKIP_SEARCH" in rewritten_text.upper():
+                search_query = "SKIP_SEARCH"
+            else:
                 search_query = rewritten_text
                 
         except Exception as e:
@@ -46,7 +51,7 @@ async def generate_answer(customer_id: str, user_question: str, history: list):
 
     print(f"--> [DEBUG] Original: '{user_question}' | Pinecone Search: '{search_query}'")
     
-    # --- 2. VECTOR SEARCH ---
+    # --- 2. VECTOR SEARCH WITH NAVIGATION METADATA ---
     retrieved_chunks = []
     if search_query != "SKIP_SEARCH":
         query_generator = embedding_model.embed([search_query])
@@ -62,19 +67,30 @@ async def generate_answer(customer_id: str, user_question: str, history: list):
 
         for match in search_results['matches']:
             if 'metadata' in match and 'text' in match['metadata']:
-                retrieved_chunks.append(match['metadata']['text'])
+                text_chunk = match['metadata']['text']
+                # Retrieve the source URL so the consultant knows where the info lives
+                source_link = match['metadata'].get('source_url', 'the current page')
+                
+                # Bind the text to its location for the AI
+                retrieved_chunks.append(f"Content: {text_chunk}\nSource Link: {source_link}")
 
     if not retrieved_chunks:
-        context_text = "No direct information found in the database. Rely on Chit-Chat rules."
+        context_text = "No direct information found in the database. Rely on general consulting etiquette to guide the user gently."
     else:
         context_text = "\n\n---\n\n".join(retrieved_chunks)
 
-    # --- 3. FINAL GENERATION ---
+    # --- 3. FINAL GENERATION (The Consultant Persona) ---
     system_prompt = (
-        "You are an intelligent, friendly AI assistant. Follow these rules strictly:\n"
-        "1. If the user is making small talk, respond politely without checking the knowledge base.\n"
-        "2. For factual questions, answer using ONLY the provided Knowledge Base Context.\n"
-        "3. If the user asks a factual question and the answer is NOT in the context, say exactly: 'That information is not in the knowledge base.'"
+        "You are an elite, highly empathetic Client Success Consultant for this website. Your primary mission is to provide 'white-glove' service, ensuring every user feels deeply valued, heard, and supported. "
+        "You speak with a warm, natural, and conversational tone—never robotic or overly corporate.\n\n"
+        
+        "Follow these strict consulting rules:\n"
+        "1. THE WHITE-GLOVE EXPERIENCE: Always validate the user's needs. Use active listening cues (e.g., 'That is a great question,' or 'I completely understand why you need that'). Make them feel like your most important client.\n"
+        "2. CONVERSATIONAL PROACTIVITY: Answer their question directly, but never let the conversation hit a dead end. Seamlessly weave in a helpful next step, a tailored recommendation, or a polite clarifying question to maintain a natural dialogue.\n"
+        "3. PINPOINT NAVIGATION: Act as their personal guide. When providing solutions, use the 'Source Links' in the Knowledge Base Context to point them exactly where they need to go, briefly explaining *why* that specific link will help them.\n"
+        "4. THE GRACEFUL PIVOT: If the context completely lacks the answer, never mention your 'database' or 'training.' Instead, validate their request, politely explain that you don't have that specific detail at hand, and immediately pivot to the closest relevant information you DO have, or warmly offer human support.\n"
+        "5. ABSOLUTE FACTUAL INTEGRITY: Your empathy must never compromise accuracy. Base all facts, features, and pricing STRICTLY on the provided Knowledge Base Context. Never invent or hallucinate details to appease the user.\n"
+        "6. ELEGANT FORMATTING: Keep responses highly readable. Use short, breathable paragraphs. Use bullet points only when listing multiple distinct items. Always end with a warm, open-ended closing."
     )
     
     messages = [{"role": "system", "content": system_prompt}]

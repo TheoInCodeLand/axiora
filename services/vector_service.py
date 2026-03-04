@@ -63,12 +63,16 @@ async def process_and_store(customer_id: str, url: str, markdown_text: str):
         vectors = []
         for j, (chunk, emb) in enumerate(zip(chunk_batch, embeddings)):
             chunk_id = f"{customer_id}-{uuid.uuid4()}"
+            
+            # --- THE METADATA INJECTION ---
+            # We explicitly map the URL to 'source_url' so the Consultant AI 
+            # can retrieve the link during the chat generation phase.
             vectors.append({
                 "id": chunk_id,
                 "values": emb.tolist(),
                 "metadata": {
                     "customer_id": customer_id,
-                    "url": url,
+                    "source_url": url, 
                     "text": chunk
                 }
             })
