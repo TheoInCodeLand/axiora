@@ -34,7 +34,7 @@ async def ingest_url(url: str, customer_id: str = "demo_user_01"):
             chunks_saved = await process_and_store(customer_id, page_url, page_content)
             total_chunks_saved += chunks_saved
 
-        print(f"--> [STEP 3] Finished! {total_chunks_saved} total vectors mapped to Pinecone.")
+        print(f"-------> [STEP 3] Finished! {total_chunks_saved} total vectors mapped to Pinecone.")
         print("==================================================\n")
 
         return {
