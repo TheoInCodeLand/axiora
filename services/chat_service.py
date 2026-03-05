@@ -210,18 +210,22 @@ class ConversationalAI:
     ) -> str:
         """Generate with emotion-appropriate parameters"""
         
-        # Adjust temperature based on emotion and phase
-        if context.user_emotion == "frustrated":
-            temperature = 0.1  # Precise, careful
-            max_tokens = 150   # Short, actionable
+        # --- THE FACTUAL LOCKDOWN ---
+        # If the phase is SOLUTION_PRESENTATION, force temperature to 0.0 so it cannot invent facts
+        if context.phase.name == "SOLUTION_PRESENTATION":
+            temperature = 0.0
+            max_tokens = 300
+        elif context.user_emotion == "frustrated":
+            temperature = 0.1  
+            max_tokens = 150   
         elif context.user_emotion == "confused":
-            temperature = 0.3  # Clear but warm
-            max_tokens = 300   # Detailed explanation
-        elif context.phase == ConversationPhase.GREETING:
-            temperature = 0.7  # Warm, personable
+            temperature = 0.2  
+            max_tokens = 300   
+        elif context.phase.name == "GREETING":
+            temperature = 0.5  
             max_tokens = 100
         else:
-            temperature = 0.2  # Balanced
+            temperature = 0.1  
             max_tokens = 250
         
         completion = await self.groq_client.chat.completions.create(
@@ -270,9 +274,16 @@ class ConversationalAI:
                 response += " " + random.choice(closings)
         
         # Add source references naturally if not already present
-        if knowledge and not any("Source" in response or "http" in response for _ in [1]):
-            if context.topic_confidence > 0.8:
-                response += f"\n\nYou can find more details in our [documentation]({knowledge[0]['source']})."
+        # if knowledge and not any("Source" in response or "http" in response for _ in [1]):
+        #     if context.topic_confidence > 0.8:
+        #         response += f"\n\nYou can find more details in our [documentation]({knowledge[0]['source']})."
+        
+        # return response.strip()
+        if knowledge and not any("http" in response for _ in [1]):
+            if context.topic_confidence > 0.4:
+                # Get the best matching URL
+                best_link = knowledge[0]['source']
+                response += f"\n\nHere is the direct link to exactly what we just discussed: [View Details]({best_link})."
         
         return response.strip()
 
