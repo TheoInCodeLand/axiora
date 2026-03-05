@@ -8,7 +8,7 @@ router = APIRouter()
 @router.post("/ingest")
 async def ingest_url(url: str, customer_id: str = "demo_user_01"):
     print("\n==================================================")
-    print(f"🚀 NEW ENTERPRISE INGEST REQUEST: {url}")
+    print(f"NEW ENTERPRISE INGEST REQUEST: {url}")
     print("==================================================")
     
     try:

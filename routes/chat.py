@@ -14,9 +14,8 @@ class ChatPayload(BaseModel):
 
 @router.post("/chat")
 async def chat_endpoint(payload: ChatPayload):
-    print("\n==================================================")
-    print(f"🗣️ NEW CHAT REQUEST: {payload.question}")
-    print(f"🧠 MEMORY: Received {len(payload.history)} previous messages")
+    print(f"NEW CHAT REQUEST: {payload.question}")
+    print(f"MEMORY: Received {len(payload.history)} previous messages")
     print("==================================================")
     
     try:
